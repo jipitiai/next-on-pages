@@ -1,6 +1,6 @@
 {
 	"name": "next-on-pages-monorepo",
-	"private": false,
+	"private": true,
 	"workspaces": [
 		"internal-packages/*",
 		"packages/*",

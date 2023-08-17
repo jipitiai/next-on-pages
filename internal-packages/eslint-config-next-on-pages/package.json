@@ -1,6 +1,6 @@
 {
 	"name": "@cloudflare/eslint-config-next-on-pages",
-	"private": false,
+	"private": true,
 	"description": "Shared eslint config for next-on-pages packages",
 	"main": "index.js",
 	"dependencies": {

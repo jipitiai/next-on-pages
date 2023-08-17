@@ -1,6 +1,6 @@
 {
 	"name": "docs-scraper",
-	"private": false,
+	"private": true,
 	"scripts": {
 		"lint": "eslint scripts",
 		"types-check": "tsc --noEmit",
