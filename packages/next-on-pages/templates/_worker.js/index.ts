@@ -25,8 +25,13 @@ export default {
 				{ status: 503 },
 			);
 		}
+		const CloudflareContext = {
+			env,
+			cf: request.cf,
+			ctx
+		}
 		return envAsyncLocalStorage.run(
-			{ ...env, NODE_ENV: __NODE_ENV__ },
+			{ ...env, CloudflareContext, NODE_ENV: __NODE_ENV__ },
 			async () => {
 				const url = new URL(request.url);
 				if (url.pathname.startsWith('/_next/image')) {
