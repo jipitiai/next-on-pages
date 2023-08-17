@@ -2,7 +2,6 @@
 	"name": "@askcodebase/next-on-pages",
 	"version": "0.1.0",
 	"bin": "./bin/index.js",
-	"private": "false",
 	"scripts": {
 		"lint": "eslint src",
 		"types-check": "tsc --noEmit",
