@@ -1,6 +1,6 @@
 import { parse } from 'acorn';
 import type * as AST from 'ast-types/gen/kinds';
-import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { dirname, join, relative } from 'node:path';
 import type { ProcessVercelFunctionsOpts } from '.';
 import type { CollectedFunctions, FunctionInfo } from './configs';
@@ -89,7 +89,7 @@ async function processFunctionIdentifiers(
 
 		// Tracks the imports to prepend to the final code for the function and identifiers.
 		const importsToPrepend: NewImportInfo[] = [];
-		const wasmImportsToPrepend = new Map<string, string[]>();
+		const wasmImportsToPrepend = new Map<string, Set<string>>();
 
 		const newFnLocation = join('functions', `${fnInfo.relativePath}.js`);
 		const newFnPath = join(opts.nopDistDir, newFnLocation);
@@ -121,10 +121,22 @@ async function processFunctionIdentifiers(
 				if (newFilePath) identifierPathsToBuild.add(newFilePath);
 				if (newImport) importsToPrepend.push(newImport);
 				if (wasmImports.length) {
-					wasmImportsToPrepend.set(
-						identifierInfo.newDest as string,
-						wasmImports,
-					);
+					const newDest = identifierInfo.newDest as string;
+					if (!wasmImportsToPrepend.get(newDest)) {
+						wasmImportsToPrepend.set(newDest, new Set());
+					}
+					// eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+					const destImports = wasmImportsToPrepend.get(newDest)!;
+					wasmImports.forEach(wasmImport => destImports.add(wasmImport));
+				}
+			} else if (identifierInfo.consumers.length === 1) {
+				// If there is only one consumer, we can leave the code block inlined.
+
+				identifierInfo.inlined = true;
+
+				if (!identifierInfo.byteLength) {
+					const buffer = Buffer.from(fileContents.slice(start, end));
+					identifierInfo.byteLength = buffer.byteLength;
 				}
 			}
 		}
@@ -198,6 +210,9 @@ async function buildFunctionFile(
 	const finalFileContents = `${functionImports}${fileContents}`;
 	const buildPromise = buildFile(finalFileContents, newFnPath, {
 		relativeTo: nopDistDir,
+	}).then(async () => {
+		const { size } = await stat(newFnPath);
+		fnInfo.outputByteSize = size;
 	});
 
 	return { buildPromise };
@@ -218,7 +233,7 @@ type BuildFunctionFileOpts = {
  * @param opts Options for processing the function.
  */
 async function prependWasmImportsToCodeBlocks(
-	wasmImportsToPrepend: Map<string, string[]>,
+	wasmImportsToPrepend: Map<string, Set<string>>,
 	identifierMaps: Record<IdentifierType, IdentifiersMap>,
 	{ workerJsDir, nopDistDir }: ProcessVercelFunctionsOpts,
 ) {
@@ -282,6 +297,9 @@ async function processImportIdentifier(
 		info.newDest = normalizePath(relative(workerJsDir, newPath));
 
 		await copyFileWithDir(oldPath, newPath);
+
+		const { size } = await stat(newPath);
+		info.byteLength = size;
 	}
 
 	const relativeImportPath = getRelativePathToAncestor({
@@ -351,11 +369,15 @@ async function processCodeBlockIdentifier(
 			.filter(key => codeBlock.includes(key))
 			.forEach(key => wasmImports.push(key));
 
-		await mkdir(identTypeDir, { recursive: true });
-		await appendFile(
-			newFilePath,
+		const buffer = Buffer.from(
 			`export const ${identifierKey} = ${codeBlock}\n`,
+			'utf8',
 		);
+
+		info.byteLength = buffer.byteLength;
+
+		await mkdir(identTypeDir, { recursive: true });
+		await appendFile(newFilePath, buffer);
 	}
 
 	const newImport: NewImportInfo = { key: identifierKey, path: info.newDest };
@@ -452,6 +474,14 @@ function fixFunctionContents(contents: string): string {
 	contents = contents.replace(
 		/(?:(JSON\.stringify\(\[\w+\.method\S+,)\w+\.mode(,\S+,)\w+\.credentials(,\S+,)\w+\.integrity(\]\)))/gm,
 		'$1null$2null$3null$4',
+	);
+
+	// The workers runtime does not implement `cache` on RequestInit. This is used in Next.js' patched fetch.
+	// Due to this, we remove the `cache` property from those that Next.js adds to RequestInit.
+	// https://github.com/vercel/next.js/blob/269114b5cc583f0c91e687c1aeb61503ef681b91/packages/next/src/server/lib/patch-fetch.ts#L304
+	contents = contents.replace(
+		/"cache",("credentials","headers","integrity","keepalive","method","mode","redirect","referrer")/gm,
+		'$1',
 	);
 
 	return contents;

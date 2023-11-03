@@ -63,13 +63,14 @@ export type CollectedFunctions = {
 	edgeFunctions: Map<string, FunctionInfo>;
 	prerenderedFunctions: Map<string, FunctionInfo>;
 	invalidFunctions: Map<string, FunctionInfo>;
-	ignoredFunctions: Map<string, FunctionInfo>;
+	ignoredFunctions: Map<string, FunctionInfo & { reason?: string }>;
 };
 
 export type FunctionInfo = {
 	relativePath: string;
 	config: VercelFunctionConfig;
 	outputPath?: string;
+	outputByteSize?: number;
 	route?: {
 		path: string;
 		headers?: Record<string, string>;

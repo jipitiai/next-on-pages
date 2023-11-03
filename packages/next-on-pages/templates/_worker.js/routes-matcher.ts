@@ -5,7 +5,7 @@ import {
 	applyHeaders,
 	applyPCREMatches,
 	applySearchParams,
-	hasField,
+	checkhasField,
 	getNextPhase,
 	isUrl,
 	matchPCRE,
@@ -91,7 +91,7 @@ export class RoutesMatcher {
 	private checkRouteMatch(
 		route: VercelSource,
 		checkStatus?: boolean,
-	): MatchPCREResult | undefined {
+	): { routeMatch: MatchPCREResult; routeDest?: string } | undefined {
 		const srcMatch = matchPCRE(route.src, this.path, route.caseSensitive);
 		if (!srcMatch.match) return;
 
@@ -109,15 +109,25 @@ export class RoutesMatcher {
 			url: this.url,
 			cookies: this.cookies,
 			headers: this.reqCtx.request.headers,
+			routeDest: route.dest,
 		};
 
 		// All `has` conditions must be met - skip if one is not met.
-		if (route.has?.find(has => !hasField(has, hasFieldProps))) {
+		if (
+			route.has?.find(has => {
+				const result = checkhasField(has, hasFieldProps);
+				if (result.newRouteDest) {
+					// If the `has` condition had a named capture to update the destination, update it.
+					hasFieldProps.routeDest = result.newRouteDest;
+				}
+				return !result.valid;
+			})
+		) {
 			return;
 		}
 
 		// All `missing` conditions must not be met - skip if one is met.
-		if (route.missing?.find(has => hasField(has, hasFieldProps))) {
+		if (route.missing?.find(has => checkhasField(has, hasFieldProps).valid)) {
 			return;
 		}
 
@@ -126,7 +136,7 @@ export class RoutesMatcher {
 			return;
 		}
 
-		return srcMatch;
+		return { routeMatch: srcMatch, routeDest: hasFieldProps.routeDest };
 	}
 
 	/**
@@ -310,13 +320,13 @@ export class RoutesMatcher {
 			this.path = prevPath;
 		}
 
-		// NOTE: Special handling for `.rsc` requests. If the Vercel CLI failed to generate an RSC
-		// version of the page and the build output config has a record mapping the request to the
-		// RSC variant, we should strip the `.rsc` extension from the path.
-		const isRsc = /\.rsc$/i.test(this.path);
+		// NOTE: Special handling for `.rsc` and `.prefetch.rsc` requests. If the Vercel CLI failed to
+		// generate an RSC version of the page and the build output config has a record mapping the request
+		// to the RSC variant, we should strip the `.rsc` (or `.prefetch.rsc`) extension from the path.
+		const isRsc = /(\.prefetch)?\.rsc$/i.test(this.path);
 		const pathExistsInOutput = this.path in this.output;
 		if (isRsc && !pathExistsInOutput) {
-			this.path = this.path.replace(/\.rsc/i, '');
+			this.path = this.path.replace(/(\.prefetch)?\.rsc/i, '');
 		}
 
 		// Merge search params for later use when serving a response.
@@ -383,10 +393,6 @@ export class RoutesMatcher {
 	 * Modifies the source route's `src` regex to be friendly with previously found locale's in the
 	 * `miss` phase.
 	 *
-	 * Sometimes, there is a source route with `src: '/{locale}'`, which rewrites all paths containing
-	 * the locale to `/`. This is problematic for matching, and should only do this if the path is
-	 * exactly the locale, i.e. `^/{locale}$`.
-	 *
 	 * There is a source route generated for rewriting `/{locale}/*` to `/*` when no file was found
 	 * for the path. This causes issues when using an SSR function for the index page as the request
 	 * to `/{locale}` will not be caught by the regex. Therefore, the regex needs to be updated to
@@ -404,14 +410,11 @@ export class RoutesMatcher {
 			return route;
 		}
 
-		const isLocaleIndex =
-			/^\//.test(route.src) && route.src.slice(1) in this.locales;
-		if (isLocaleIndex) {
-			return { ...route, src: `^${route.src}$` };
-		}
-
 		if (isLocaleTrailingSlashRegex(route.src, this.locales)) {
-			return { ...route, src: route.src.replace(/\/\(\.\*\)$/, '(?:/(.*))?$') };
+			return {
+				...route,
+				src: route.src.replace(/\/\(\.\*\)\$$/, '(?:/(.*))?$'),
+			};
 		}
 
 		return route;
@@ -428,8 +431,11 @@ export class RoutesMatcher {
 		phase: VercelPhase,
 		rawRoute: VercelSource,
 	): Promise<CheckRouteStatus> {
-		const route = this.getLocaleFriendlyRoute(rawRoute, phase);
-		const routeMatch = this.checkRouteMatch(route, phase === 'error');
+		const localeFriendlyRoute = this.getLocaleFriendlyRoute(rawRoute, phase);
+		const { routeMatch, routeDest } =
+			this.checkRouteMatch(localeFriendlyRoute, phase === 'error') ?? {};
+
+		const route: VercelSource = { ...localeFriendlyRoute, dest: routeDest };
 
 		// If this route doesn't match, continue to the next one.
 		if (!routeMatch?.match) return 'skip';
@@ -476,7 +482,7 @@ export class RoutesMatcher {
 				// This happens with invalid `/_next/static/...` and `/_next/data/...` requests.
 
 				if (phase !== 'miss') {
-					return await this.checkPhase(getNextPhase(phase));
+					return this.checkPhase(getNextPhase(phase));
 				}
 
 				this.status = 404;
@@ -485,7 +491,7 @@ export class RoutesMatcher {
 				// avoids rewrites in `none` that do the opposite of those in `miss`, and would cause infinite
 				// loops (e.g. i18n). If it is in the build output, remove a potentially applied `404` status.
 				if (!(this.path in this.output)) {
-					return await this.checkPhase('filesystem');
+					return this.checkPhase('filesystem');
 				}
 
 				if (this.status === 404) {
@@ -494,7 +500,7 @@ export class RoutesMatcher {
 			} else {
 				// In all other instances, we need to enter the `none` phase so we can ensure that requests
 				// for the `RSC` variant of pages are served correctly.
-				return await this.checkPhase('none');
+				return this.checkPhase('none');
 			}
 		}
 
@@ -577,7 +583,7 @@ export class RoutesMatcher {
 			nextPhase = getNextPhase(phase);
 		}
 
-		return await this.checkPhase(nextPhase);
+		return this.checkPhase(nextPhase);
 	}
 
 	/**

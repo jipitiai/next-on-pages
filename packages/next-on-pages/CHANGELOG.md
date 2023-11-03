@@ -1,5 +1,97 @@
 # @cloudflare/next-on-pages
 
+## 1.7.2
+
+### Patch Changes
+
+- a1091b1: bump package-manager-manager to 0.2.0
+
+## 1.7.1
+
+### Patch Changes
+
+- 5b44784: bump package-manager-manager to 0.1.3
+
+## 1.7.0
+
+### Minor Changes
+
+- 2423529: Add new static error page that informs users when they forgot to set the `nodejs_compat` flag.
+  This should be clearer that the simple text message we've been providing previously (which is
+  still being used as a fallback in case the new page is not available for some reason).
+
+### Patch Changes
+
+- 29d3041: improve routing by following more closely Vercel's routes matching logic
+- 69efaa5: Reinstate the use of the package-manager-manager package introduced in #474 and temporarily removed in #475,
+  this fixes the bug that was caused by the package by bumping the package itself (where the bug has been fixed)
+  and adding appropriate catches when the package methods can throw (in case other unexpected issues arise in the
+  future)
+- ab83858: Changes to the x-vercel-ip headers to bring their structure in line with deployments to Vercel.
+- 6600d2a: fix wasms not always getting imported when necessary
+
+  Details:
+  when dealing with wasms that have more than 1 consumer, when we collect
+  the wasm imports to prepend for a specific edge funcion we're always
+  re-setting the array of wasm imports instead of appending them, this
+  causes edge functions to always only consider the last wasm
+  import, the changes here fix such behavior
+
+## 1.6.3
+
+### Patch Changes
+
+- 072af87: Temporarily revert the change to package-manager-manager so that the bug fix in the latest release for new next.js versions can still be releases, while a fix for #474 is investigated in the meantime.
+
+## 1.6.2
+
+### Patch Changes
+
+- cd2f7ee: correctly handle newly introduced .prefetch.rsc suffixes
+- 5b4a5b7: improve package managers and package handling by using the package-manager-manager third party library
+- b585099: Avoid using the Vercel custom config hack for Bun package manager support when a version of the Vercel CLI that supports Bun is used.
+- 628f6bb: Ignore invalid nodejs i18n functions with valid alternatives.
+
+## 1.6.1
+
+### Patch Changes
+
+- 0168496: Fix named capture groups in `has` entries in the build output config not applying to route destination paths.
+- f764fff: Fix `process.env` not being enumerable due to being a proxy.
+- 1e25a97: Fix dynamic parameters with an underscore leading to an incorrect param being provided.
+- c06b437: Normalize the injected function entrypoints for Windows.
+
+## 1.6.0
+
+### Minor Changes
+
+- 291bfde: Support for the internal fetch (suspense) cache, and `next/cache` data revalidation.
+
+### Patch Changes
+
+- cb32baf: avoid the default is not a function unclear error
+
+  if there is some issue evaluating a lazy loaded edge function
+  its default export ends up not being a function and that results
+  in an unhelpful error like the following:
+
+  ```
+   TypeError: u.default is not a function
+  ```
+
+  slightly improve the user experience by catching such error and
+  letting the user know that something went wrong with the edge
+  function's evaluation:
+
+  ```
+   Error: An error occurred while evaluating the target edge function (<edge-function-path>)
+  ```
+
+- 291bfde: Stop the `cache` property in fetch requests causing internal server error.
+- 4570aa6: add vercel@31 as a peer dependency
+- c788def: fix package version detection for yarn
+- fe6ea04: Add vercel@32 as a peer dependency
+
 ## 1.5.1
 
 ### Patch Changes

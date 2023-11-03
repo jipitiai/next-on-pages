@@ -1,3 +1,4 @@
+import { SUSPENSE_CACHE_URL } from '../cache';
 import { handleRequest } from './handleRequest';
 import {
 	adjustRequestForVercel,
@@ -20,10 +21,14 @@ export default {
 	async fetch(request, env, ctx) {
 		const envAsyncLocalStorage = await __ENV_ALS_PROMISE__;
 		if (!envAsyncLocalStorage) {
-			return new Response(
-				`Error: Could not access built-in Node.js modules. Please make sure that your Cloudflare Pages project has the 'nodejs_compat' compatibility flag set.`,
-				{ status: 503 },
+			const reqUrl = new URL(request.url);
+			const noNodeJsCompatStaticPageRequest = await env.ASSETS.fetch(
+				`${reqUrl.protocol}//${reqUrl.host}/cdn-cgi/errors/no-nodejs_compat.html`,
 			);
+			const responseBody = noNodeJsCompatStaticPageRequest.ok
+				? noNodeJsCompatStaticPageRequest.body
+				: "Error: Could not access built-in Node.js modules. Please make sure that your Cloudflare Pages project has the 'nodejs_compat' compatibility flag set.";
+			return new Response(responseBody, { status: 503 });
 		}
 		const CloudflareContext = {
 			env,
@@ -31,7 +36,8 @@ export default {
 			ctx
 		}
 		return envAsyncLocalStorage.run(
-			{ ...env, CloudflareContext, NODE_ENV: __NODE_ENV__ },
+			// NOTE: The `SUSPENSE_CACHE_URL` is used to tell the Next.js Fetch Cache where to send requests.
+			{ ...env, CloudflareContext, NODE_ENV: __NODE_ENV__, SUSPENSE_CACHE_URL },
 			async () => {
 				const url = new URL(request.url);
 				if (url.pathname.startsWith('/_next/image')) {

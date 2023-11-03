@@ -8,6 +8,7 @@ type TestCase = {
 	name: string;
 	url: string;
 	route: VercelSource;
+	opts?: { namedOnly?: boolean };
 	expected: { match: boolean; captureGroupKeys: string[]; newDest?: string };
 };
 
@@ -127,6 +128,27 @@ describe('applyPCREMatches', () => {
 				newDest: '/new/nde/dest?id=',
 			},
 		},
+		{
+			name: 'should only apply matched named capture groups when `namedOnly` is set',
+			url: 'https://example.com/index',
+			route: { src: '^/i(?<name>nde)x(?:/)?', dest: '/new/$name/$dest?id=$id' },
+			opts: { namedOnly: true },
+			expected: {
+				match: true,
+				captureGroupKeys: ['name'],
+				newDest: '/new/nde/$dest?id=$id',
+			},
+		},
+		{
+			name: 'should process dest for a route with named group containing underscore',
+			url: 'https://example.com/index',
+			route: { src: '^/i(?<na_me>nde)x(?:/)?', dest: '/new/$na_me/dest' },
+			expected: {
+				match: true,
+				captureGroupKeys: ['na_me'],
+				newDest: '/new/nde/dest',
+			},
+		},
 	];
 
 	testCases.forEach(testCase => {
@@ -141,6 +163,7 @@ describe('applyPCREMatches', () => {
 				// eslint-disable-next-line @typescript-eslint/no-non-null-assertion
 				match!,
 				captureGroupKeys,
+				testCase.opts,
 			);
 
 			const { newDest: expectedNewDest, ...expected } = testCase.expected;
